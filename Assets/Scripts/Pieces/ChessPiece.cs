@@ -1,4 +1,5 @@
 ﻿using UnityEngine;
+using System.Collections.Generic;
 
 public enum ChessPieceType{
     None = 0,
@@ -24,6 +25,13 @@ public class ChessPiece : MonoBehaviour{
 
     public TeamPlayer team;
     public ChessPieceType type;
+
+
+    public  virtual List<Vector2Int> GetAvailableMoves(ref ChessPiece[,] board, int BOARD_SIZE){
+        List<Vector2Int> r = new List<Vector2Int>();
+
+        return r;
+    }
 
 
 }

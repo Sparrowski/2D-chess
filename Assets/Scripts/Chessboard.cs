@@ -1,11 +1,13 @@
 using UnityEngine;
+using System.Collections.Generic;
 
 public class Chessboard : MonoBehaviour{
+
     [Header("Assets")]
     [SerializeField]private Sprite darkTile;
     [SerializeField]private Sprite lightTile;
     [SerializeField]private Sprite hoverTile;
-    [SerializeField]private Sprite clickedTile;
+    [SerializeField]private Sprite highlightTile;
 
     [Header("Chess Pieces")]
     [SerializeField]private Vector3 pieceScale = new Vector3(1.2f, 1.2f, 1f);
@@ -16,6 +18,13 @@ public class Chessboard : MonoBehaviour{
     private ChessPiece[,] piecesOnBoard;
     private ChessPiece draggedPiece;
 
+    private List<ChessPiece> whiteDeaths = new List<ChessPiece>();
+    private List<ChessPiece> blackDeaths = new List<ChessPiece>();
+
+    private List<Vector2Int> availableMoves = new List<Vector2Int>();
+
+    private TeamPlayer currentPlayer;
+
 
     private const int BOARD_SIZE = 8;
     private float tileSize;
@@ -23,7 +32,16 @@ public class Chessboard : MonoBehaviour{
     private Camera camera;
     private Vector2Int currentHover;
 
-    private void Awake() {        
+
+    [HideInInspector] public bool isBlackWinner = false;
+    [HideInInspector] public bool isWhiteWinner = false;
+
+    private void Start() {
+        Time.timeScale = 1;
+    }
+
+    private void Awake() {
+        currentPlayer = TeamPlayer.White;    
         currentHover = -Vector2Int.one;
         GenerateBoard();
 
@@ -42,7 +60,7 @@ public class Chessboard : MonoBehaviour{
         /// code below detects which tile is hovered
         #region hoverCheck 
         Collider2D collider = Physics2D.OverlapPoint(camera.ScreenToWorldPoint(Input.mousePosition),  
-                                                    LayerMask.GetMask("Tile", "Hover"), 0, 5);
+                                                    LayerMask.GetMask("Tile", "Hover", "Highlighted"), 0, 5);
 
         if(collider != null){
             
@@ -55,7 +73,7 @@ public class Chessboard : MonoBehaviour{
             }
             
             if(currentHover != hoveredTile){
-                tiles[currentHover.x, currentHover.y].layer = LayerMask.NameToLayer("Tile");
+                tiles[currentHover.x, currentHover.y].layer = (ShouldBeHighlighted(ref availableMoves, currentHover)) ? LayerMask.NameToLayer("Highlighted") : LayerMask.NameToLayer("Tile");
                 UpdateTile(currentHover);
                 currentHover = hoveredTile;
                 tiles[currentHover.x, currentHover.y].layer = LayerMask.NameToLayer("Hover");
@@ -67,32 +85,110 @@ public class Chessboard : MonoBehaviour{
             if(Input.GetMouseButtonDown(0)){
                 if(piecesOnBoard[hoveredTile.x, hoveredTile.y] != null){
                     draggedPiece = piecesOnBoard[hoveredTile.x, hoveredTile.y];
+
+                    // Check if right player chose his piece
+                    if(draggedPiece.team != currentPlayer){  
+                        draggedPiece = null;
+                        return;
+                    }
+
                     draggedPiece.gameObject.transform.localScale = pieceScale;
+
+                    // Getting list of available moves, and highlighting right tiles
+                    availableMoves = draggedPiece.GetAvailableMoves(ref piecesOnBoard, BOARD_SIZE);
+                    HighlightTiles();
+
                 }
             }
 
-            if(Input.GetMouseButtonUp(0)){
-                if(draggedPiece != null && piecesOnBoard[currentHover.x, currentHover.y] == null){
-                    Vector2Int previousHover = new Vector2Int(draggedPiece.currentX, draggedPiece.currentY);
-                    piecesOnBoard[previousHover.x, previousHover.y] = null;
-                    draggedPiece.gameObject.transform.position = tiles[currentHover.x, currentHover.y].transform.position;
-                    draggedPiece.currentX = currentHover.x;
-                    draggedPiece.currentY = currentHover.y;
-                    piecesOnBoard[currentHover.x, currentHover.y] = draggedPiece;
-                    draggedPiece.gameObject.transform.localScale = new Vector3(1f,1f,1f);
-                    draggedPiece = null;
-                }
-            }
+            if(draggedPiece != null && Input.GetMouseButtonUp(0)){
+                bool isMoveValid = isMoveAvailable(draggedPiece, currentHover.x, currentHover.y);
 
+                if(isMoveValid){
+                    currentPlayer = currentPlayer == TeamPlayer.White ? TeamPlayer.Black : TeamPlayer.White;
+                }
+
+                draggedPiece.gameObject.transform.localScale = new Vector3(1f,1f,1f);
+                draggedPiece = null;
+                RemoveHighlightTiles();
+            }
 
         }else{
             if(currentHover != -Vector2Int.one){
-                tiles[currentHover.x, currentHover.y].layer = LayerMask.NameToLayer("Tile");
+                GameObject tile = tiles[currentHover.x, currentHover.y];
+                tile.layer = (ShouldBeHighlighted(ref availableMoves, currentHover)) ? LayerMask.NameToLayer("Highlighted") : LayerMask.NameToLayer("Tile"); 
                 UpdateTile(currentHover);
                 currentHover = -Vector2Int.one;
             }
         }
         #endregion
+    }
+
+    /// <Summary>
+    /// Moving pieceToMove on the x and y position
+    /// </Summary>
+    private void MoveTo(ChessPiece pieceToMove, int x, int y){
+            Vector2Int previousHover = new Vector2Int(pieceToMove.currentX, pieceToMove.currentY);
+            piecesOnBoard[previousHover.x, previousHover.y] = null;
+            piecesOnBoard[x,y] = pieceToMove;
+            positionSinglePiece(x, y);
+            pieceToMove.gameObject.transform.localScale = new Vector3(1f,1f,1f);
+    }
+    /// <Summary>
+    /// Capturing pieces and move captured on the side of board
+    /// </Summary>
+    private void Capture(ChessPiece capturing, ChessPiece captured){
+        piecesOnBoard[captured.currentX, captured.currentY] = null;
+
+        if(captured.team == TeamPlayer.White){
+            if(captured.type == ChessPieceType.King){
+                isBlackWinner = true;
+                return;
+            }
+            whiteDeaths.Add(captured);
+            captured.gameObject.transform.localScale = new Vector3(0.5f, 0.5f, 1f);
+            captured.gameObject.transform.position = new Vector2(36f, ((whiteDeaths.Count - 2) * tileSize/2) + 1f);
+        }else{
+            if(captured.type == ChessPieceType.King){
+                isWhiteWinner = true;
+                return;
+            }
+            blackDeaths.Add(captured);
+            captured.gameObject.transform.localScale = new Vector3(0.5f, 0.5f, 0.5f);
+            captured.gameObject.transform.position = new Vector2(-5f, 31.57f - ((blackDeaths.Count - 2) * tileSize/2) - 1f);
+        }
+    }
+
+    /// <Summary>
+    /// Checks if pieceToMove can move on position (x,y),
+    /// and also doing this with function MoveTo, and Capture
+    /// Return false if move is not possible
+    /// </Summary>
+    private bool isMoveAvailable(ChessPiece pieceToMove, int x, int y){
+        ChessPiece otherPiece = piecesOnBoard[x, y];
+
+        // Check if player has chosen available tile, if not, move is not possible
+        if(!ShouldBeHighlighted(ref availableMoves, new Vector2Int(x,y)))
+            return false;
+
+        if(otherPiece == null){
+            MoveTo(pieceToMove, x, y);
+            return true;
+        }
+
+        if(otherPiece != null){
+            if(otherPiece.team != pieceToMove.team){
+                Capture(pieceToMove, otherPiece);
+                MoveTo(pieceToMove, x, y);
+                return true;
+            }
+            else{
+                pieceToMove.gameObject.transform.localScale = new Vector3(1f,1f,1f);
+                return false;
+            }
+        }
+
+        return false;
     }
 
 
@@ -116,8 +212,12 @@ public class Chessboard : MonoBehaviour{
     ///</Summary>
     private void UpdateTile(Vector2Int currentHover){
         SpriteRenderer renderer = tiles[currentHover.x, currentHover.y].GetComponent<SpriteRenderer>();
+        
         if((currentHover.x + currentHover.y) % 2 == 0) renderer.sprite = darkTile;
         else renderer.sprite = lightTile;
+
+        if(renderer.gameObject.layer == LayerMask.NameToLayer("Highlighted"))
+        renderer.sprite = highlightTile;
 
     }
 
@@ -161,6 +261,9 @@ public class Chessboard : MonoBehaviour{
         return tile;
     }
 
+    /// <Summary>
+    /// This method spawns all chess pieces
+    /// </Summary>
     private void SpawnAllPieces(){
         piecesOnBoard = new ChessPiece[BOARD_SIZE, BOARD_SIZE];
         
@@ -184,14 +287,18 @@ public class Chessboard : MonoBehaviour{
         piecesOnBoard[3,7] = SpawnSinglePiece(false, ChessPieceType.Queen);
         piecesOnBoard[4,7] = SpawnSinglePiece(false, ChessPieceType.King);
         piecesOnBoard[5,7] = SpawnSinglePiece(false, ChessPieceType.Bishop);
-        piecesOnBoard[6,7] = SpawnSinglePiece(false, ChessPieceType.Rook);
-        piecesOnBoard[7,7] = SpawnSinglePiece(false, ChessPieceType.Knight);
+        piecesOnBoard[6,7] = SpawnSinglePiece(false, ChessPieceType.Knight);
+        piecesOnBoard[7,7] = SpawnSinglePiece(false, ChessPieceType.Rook);
         for(int i =0; i < BOARD_SIZE; ++i){
             piecesOnBoard[i, 6] = SpawnSinglePiece(false, ChessPieceType.Pawn);
         }
 
     }
 
+    /// <Summary>
+    /// Spawns single chess piece 
+    /// bool isWhite - checks if piece is white or not
+    /// <Summary>
     private ChessPiece SpawnSinglePiece(bool isWhite, ChessPieceType type){
         ChessPiece piece;
         if(isWhite){ 
@@ -209,6 +316,9 @@ public class Chessboard : MonoBehaviour{
     }
 
 
+    /// <Summary>
+    /// Positioning all of pieces in piecesOnBoard array on the right positions
+    /// <Summary>
     private void positionAllPieces(){
         for(int x = 0; x < BOARD_SIZE; x++)
             for(int y = 0; y < BOARD_SIZE; y++)
@@ -216,15 +326,42 @@ public class Chessboard : MonoBehaviour{
                     positionSinglePiece(x,y);
 
     }
-    private void positionSinglePiece(int x, int y, bool smoothMove = false){
+    /// <Summary>
+    /// Positioning single piece which is on (x,y) position in array piecesOnBoard
+    /// on the x and y (multiplied by tileSize) position on the board
+    /// </Summary>
+    private void positionSinglePiece(int x, int y){
         piecesOnBoard[x,y].currentX = x;
         piecesOnBoard[x,y].currentY = y;
         piecesOnBoard[x,y].transform.position = new Vector2(x*tileSize,y*tileSize);
     }
-
-
     
 
+    private void HighlightTiles(){
+        for(int i = 0; i < availableMoves.Count; ++i){
+            GameObject tile = tiles[availableMoves[i].x, availableMoves[i].y];
+            tile.layer = LayerMask.NameToLayer("Highlighted");
+            tile.GetComponent<SpriteRenderer>().sprite = highlightTile;
+        }
+    }
 
+    private void RemoveHighlightTiles(){
+        for(int i = 0; i < availableMoves.Count; ++i){
+            GameObject tile = tiles[availableMoves[i].x, availableMoves[i].y];
+            tile.layer = LayerMask.NameToLayer("Tile");
+            UpdateTile(new Vector2Int(availableMoves[i].x, availableMoves[i].y));
+        }
+
+        availableMoves.Clear();
+    }
+
+    private bool ShouldBeHighlighted(ref List<Vector2Int> moves, Vector2Int hover){
+        for(int i = 0; i < moves.Count; ++i){
+            if(moves[i].x == hover.x && moves[i].y == hover.y)
+                return true;
+        }
+
+        return false;
+    }
 
 }
