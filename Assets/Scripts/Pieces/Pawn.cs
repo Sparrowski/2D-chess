@@ -37,7 +37,42 @@ public class Pawn : ChessPiece{
                 r.Add(new Vector2Int(currentX-1, currentY+direction));
         }
         return r;
+    }
 
+
+    public override SpecialMove GetSpecialMove(ref ChessPiece[,] board, ref List<Vector2Int[]> moveList, ref List<Vector2Int> availableMoves)
+    {
+        int direction = (team == TeamPlayer.White) ? 1 : -1;
+
+        if((team == TeamPlayer.White && currentY==6) || (team == TeamPlayer.Black && currentY == 0)){
+            return SpecialMove.Promotion;
+        }
+
+
+        if(moveList.Count > 0){
+            Vector2Int[] previousMove = moveList[moveList.Count - 1];
+
+            if(board[previousMove[1].x, previousMove[1].y].type == ChessPieceType.Pawn){
+                ChessPiece pawn = board[previousMove[1].x, previousMove[1].y];
+                if(Mathf.Abs(previousMove[1].y - previousMove[0].y) == 2){
+                    if(pawn.team != team){
+                        if(pawn.currentY == currentY){
+                            if(pawn.currentX == currentX - 1){
+                                availableMoves.Add(new Vector2Int(currentX-1,currentY + direction));
+                                return SpecialMove.EnPassant;
+                            }
+                            if(pawn.currentX == currentX + 1){
+                                availableMoves.Add(new Vector2Int(currentX+1, currentY + direction));
+                                return SpecialMove.EnPassant;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+
+        return base.GetSpecialMove(ref board, ref moveList, ref availableMoves);
     }
 
 }

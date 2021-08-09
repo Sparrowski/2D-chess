@@ -6,7 +6,7 @@ public class UIManager : MonoBehaviour
 {
     [Header("UI elements")]
     [SerializeField]private TextMeshProUGUI victory_text;
-    [SerializeField]private GameObject canvas;
+    [SerializeField]private GameObject GameOverScreen;
 
     private void Awake() {
     }
@@ -19,11 +19,11 @@ public class UIManager : MonoBehaviour
             victory_text.text = "Black won!";
     }
 
-    public void ShowScreen(TeamPlayer winner){
-        Time.timeScale = 0;
+    public void ShowGameOverScreen(TeamPlayer winner){
         UpdateText(winner);
-        canvas.SetActive(true);
+        GameOverScreen.SetActive(true);
     }
+
 
     public void onRestart(){
         SceneManager.LoadScene(0);

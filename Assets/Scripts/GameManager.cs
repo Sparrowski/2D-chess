@@ -16,6 +16,6 @@ public class GameManager : MonoBehaviour
     }
 
     public void gameOver(TeamPlayer winner){
-        uIManager.ShowScreen(winner);
+        uIManager.ShowGameOverScreen(winner);
     }
 }

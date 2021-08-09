@@ -1,6 +1,14 @@
 using UnityEngine;
 using System.Collections.Generic;
 
+public enum SpecialMove{
+    None = 0,
+    EnPassant,
+    Castling,
+    Promotion
+}
+
+
 public class Chessboard : MonoBehaviour{
 
     [Header("Assets")]
@@ -23,6 +31,10 @@ public class Chessboard : MonoBehaviour{
 
     private List<Vector2Int> availableMoves = new List<Vector2Int>();
 
+    //Special move concept
+    private List<Vector2Int[]> moveList = new List<Vector2Int[]>(); // The list of moves, Vector2Int[] stores previous position, and new position
+    private SpecialMove specialMove;
+
     private TeamPlayer currentPlayer;
 
 
@@ -35,10 +47,6 @@ public class Chessboard : MonoBehaviour{
 
     [HideInInspector] public bool isBlackWinner = false;
     [HideInInspector] public bool isWhiteWinner = false;
-
-    private void Start() {
-        Time.timeScale = 1;
-    }
 
     private void Awake() {
         currentPlayer = TeamPlayer.White;    
@@ -96,16 +104,18 @@ public class Chessboard : MonoBehaviour{
 
                     // Getting list of available moves, and highlighting right tiles
                     availableMoves = draggedPiece.GetAvailableMoves(ref piecesOnBoard, BOARD_SIZE);
+                    specialMove = draggedPiece.GetSpecialMove(ref piecesOnBoard, ref moveList, ref availableMoves);
                     HighlightTiles();
-
                 }
             }
 
             if(draggedPiece != null && Input.GetMouseButtonUp(0)){
+                Vector2Int previous = new Vector2Int(draggedPiece.currentX, draggedPiece.currentY);
                 bool isMoveValid = isMoveAvailable(draggedPiece, currentHover.x, currentHover.y);
 
                 if(isMoveValid){
-                    currentPlayer = currentPlayer == TeamPlayer.White ? TeamPlayer.Black : TeamPlayer.White;
+                    MakeSpecialMove();
+                    currentPlayer = (currentPlayer == TeamPlayer.White) ? TeamPlayer.Black : TeamPlayer.White;
                 }
 
                 draggedPiece.gameObject.transform.localScale = new Vector3(1f,1f,1f);
@@ -124,6 +134,48 @@ public class Chessboard : MonoBehaviour{
         #endregion
     }
 
+
+    private void MakeSpecialMove(){
+
+        if(specialMove == SpecialMove.EnPassant){
+            dynamic newPosition = moveList[moveList.Count - 1];
+            dynamic targetPosition = moveList[moveList.Count - 2];
+
+            ChessPiece capturingPawn = piecesOnBoard[newPosition[1].x, newPosition[1].y];
+            ChessPiece capturedPawn = piecesOnBoard[targetPosition[1].x, targetPosition[1].y];
+
+            if(capturingPawn.currentX == capturedPawn.currentX){
+                if(capturedPawn.currentY == capturingPawn.currentY+1 || capturedPawn.currentY == capturingPawn.currentY-1){
+                    Capture(capturingPawn, capturedPawn);
+                }
+            }
+        }
+        if(specialMove == SpecialMove.Castling){
+            dynamic newPosition = moveList[moveList.Count - 1];
+
+            int row = ((currentPlayer == TeamPlayer.White) ? 0 : 7);
+
+            // Left castling
+            if(newPosition[0].x > newPosition[1].x){
+                MoveTo(piecesOnBoard[0,row], 3, row); // move left rook
+            }
+            // Right castling
+            else{
+                MoveTo(piecesOnBoard[7,row], 5, row); // move right rook
+            } 
+        }
+        if(specialMove == SpecialMove.Promotion){
+            dynamic newPosition = moveList[moveList.Count - 1];
+            bool isWhite = ((currentPlayer == TeamPlayer.White) ? true : false);
+
+            Destroy(piecesOnBoard[newPosition[1].x, newPosition[1].y].gameObject);
+            piecesOnBoard[newPosition[1].x, newPosition[1].y] = SpawnSinglePiece(isWhite, ChessPieceType.Queen);
+            positionSinglePiece(newPosition[1].x, newPosition[1].y);
+
+        }
+
+    }
+
     /// <Summary>
     /// Moving pieceToMove on the x and y position
     /// </Summary>
@@ -132,6 +184,9 @@ public class Chessboard : MonoBehaviour{
             piecesOnBoard[previousHover.x, previousHover.y] = null;
             piecesOnBoard[x,y] = pieceToMove;
             positionSinglePiece(x, y);
+
+            moveList.Add(new Vector2Int[] { new Vector2Int(previousHover.x, previousHover.y), new Vector2Int(x, y)});
+
             pieceToMove.gameObject.transform.localScale = new Vector3(1f,1f,1f);
     }
     /// <Summary>
